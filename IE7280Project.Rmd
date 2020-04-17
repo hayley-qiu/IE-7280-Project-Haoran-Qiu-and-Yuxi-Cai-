@@ -1,0 +1,157 @@
+---
+title: "Project (IE7280 SEC01)"
+author: "Haoran Qiu"
+date: "4/14/2020"
+output: html_document
+---
+
+### 1) Clean and normalize data 
+```{r}
+cancer <- read.csv("~/A.Courses/IE7280 32398/Project/cancer.csv", na.strings="", stringsAsFactors=FALSE)
+head(cancer)
+summary(cancer)
+colnames(cancer)
+sapply(cancer, sd)
+sum(is.na(cancer))
+cancer <- cancer[,-1]
+cancer$diagnosis <- as.numeric(c("M" = "1", "B" = "0")[cancer$diagnosis])
+```
+
+### 2) Visualize distribution of “diagnosis”
+```{r}
+library(dplyr)
+count_diagnosis <- cancer %>%
+  group_by(diagnosis) %>%
+  summarise(Count=n())
+count_diagnosis$Percentage <- paste(round(count_diagnosis$Count / sum(count_diagnosis$Count) * 100, 2), "%")
+count_diagnosis
+```
+```{r}
+library(ggplot2)
+png('diagnosis.png', width = 500, height = 500)
+cancer%>%
+  group_by(diagnosis) %>%
+  summarise(Count=n()) %>%
+  ggplot(aes(x=reorder(diagnosis, Count), y=Count))+geom_bar(stat="identity")+geom_col(fill="steelblue")+ggtitle("Diagnosis Distribution")+xlab("Diagnosis")+ylab("Count")
+```
+```{r}
+slices <- count_diagnosis$Count
+lbls <- c("Benign", "Malignant")
+pct <- round(count_diagnosis$Count / sum(count_diagnosis$Count) * 100, 2)
+lbls <- paste(lbls, pct) # add percents to labels
+lbls <- paste(lbls,"%",sep="") # ad % to labels
+pie(slices,labels = lbls, col=c("Light Blue", "Pink"), main="Diagnosis Distribution")
+```
+radius_mean"            
+ [3] "texture_mean"           
+ [4] "perimeter_mean"         
+ [5] "area_mean"              
+ [6] "smoothness_mean"        
+ [7] "compactness_mean"       
+ [8] "concavity_mean"         
+ [9] "concave.points_mean"    
+[10] "symmetry_mean"          
+[11] "fractal_dimension
+### 3)	Scatter plots between “mean” columns (to see if there’s any multicollinearity)
+```{r}
+group <- NA
+group[cancer$diagnosis == 0] <- 1
+group[cancer$diagnosis == 1] <- 2
+my_cols <- c("#00AFBB", "#E7B800") 
+
+png('cancer_scatters.png', width = 1500, height = 1500)
+pairs(cancer[,c(2:11)], pch = 19,  cex = 0.5,
+      col = my_cols[group])
+#The almost perfectly linear patterns between the radius, perimeter and area attributes are hinting at the presence of multicollinearity between these variables. Another set of variables that possibly imply multicollinearity are the concavity, concave_points and compactness.
+```
+
+### 4)	Correlations between “mean” columns (to see if there’s any multicollinearity)
+```{r}
+cancer.cor <- cor(cancer[,c(2:31)])
+```
+```{r}
+library(corrplot)
+corrplot(cancer.cor)
+```
+```{r}
+library(ggcorrplot)
+png('cancer_cor.png', width = 1000, height = 1000)
+ggcorrplot(cancer.cor, hc.order = TRUE, type = "lower", lab = TRUE)
+```
+
+### 5)	Drop unnecessary columns based on steps 3) and 4)
+```{r}
+# first, drop all "worst" columns
+cancer_new <- cancer[, -c(22:31)]
+
+# then, drop all columns related to the "perimeter" and "area" attributes
+cancer_new <- cancer_new[, -c(4,5,14,15)]
+
+# lastly, drop all columns related to the "concavity" and "concave points" attributes
+cancer_new <- cancer_new[, -c(6,7,14,15)]
+```
+
+### 6)	Heatmap without dropped columns
+```{r}
+cancernew.cor <- cor(cancer_new[,c(2:13)])
+png('cancer_cor_new.png', width = 800, height = 800)
+ggcorrplot(cancernew.cor, hc.order = TRUE, type = "lower", lab = TRUE)
+```
+
+### 7)	Split data into training and testing sets
+```{r}
+train <- cancer_new[1:500,]
+test <- cancer_new[501:569,]
+```
+
+### 8)	Create a model for the formula
+```{r}
+model <- glm(diagnosis ~.,family=binomial(link='logit'),data=cancer_new)
+summary(model)
+```
+```{r}
+library(finalfit)
+library(dplyr)
+explanatory <- c("radius_mean", "texture_mean", "smoothness_mean", "compactness_mean", "symmetry_mean", "fractal_dimension_mean", "radius_se", "texture_se", "smoothness_se", "compactness_se", "symmetry_se", "fractal_dimension_se")
+dependent <- "diagnosis"
+model_table <- cancer_new %>% 
+  finalfit(dependent, explanatory, 
+  dependent_label_prefix = "")
+model_table
+```
+
+```{r}
+anova(model, test="Chisq")
+```
+```{r}
+library(pscl)
+pR2(model)
+```
+
+```{r}
+fitted.results <- predict(model,newdata=subset(test,select=c(2:13)),type='response')
+fitted.results <- ifelse(fitted.results > 0.5,1,0)
+fitted.results
+```
+```{r}
+test$diagnosis
+```
+```{r}
+misClasificError <- mean(fitted.results != test$diagnosis)
+print(paste('Accuracy',1-misClasificError))
+```
+
+```{r}
+library(ROCR)
+p <- predict(model, newdata=subset(test,select=c(2:13)), type="response")
+pr <- prediction(p, test$diagnosis)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+png('prf.png', width = 500, height = 500)
+plot(prf)
+```
+```{r}
+auc <- performance(pr, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+```
+
